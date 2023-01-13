@@ -68,6 +68,7 @@ func main() {
 	//Realizar Bulk
 	bulkFile, _ := os.Open("temp.json")
 	defer f.Close()
+	defer os.Remove("temp.json")
 
 	req, err := http.NewRequest("POST", "http://localhost:4080/api/_bulkv2", bulkFile)
 	if err != nil {
