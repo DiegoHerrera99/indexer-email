@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"sync"
 	"time"
 )
 
@@ -26,11 +28,14 @@ const nChunks int = 10
 
 // const index string = "enron"
 
+var wg = sync.WaitGroup{}
+
 func main() {
 
 	start := time.Now()
-	defer timeTrack(start, "genPathChunks")
+	defer timeTrack(start, "gen&proccessChunks GO")
 
+	//GENERAR SLICE CON TODOS LOS PATHS DE EMAILS EN LA DB
 	fileList := []string{}
 
 	error := filepath.WalkDir(path, func(path string, d os.DirEntry, err error) error {
@@ -44,14 +49,23 @@ func main() {
 		fmt.Println(error)
 	}
 
+	//GENERAR SLICE DE CHUNKS PARA PROCESAR CON GORUTINA
 	chunks := chunkSlice(fileList, nChunks)
-	fmt.Printf("NO. OF CHUNKS: %v    ----------\nNO. OF FILES: %v ----------\n", len(chunks), len(fileList))
+	fmt.Printf("---------- NO. OF CHUNKS: %v\n---------- NO. OF FILES:  %v\n", len(chunks), len(fileList))
+
+	//TODO: Procesar con Go Rutina!!!!
+	wg.Add(nChunks)
+	for idx, chunk := range chunks {
+		go processChunk(chunk, idx)
+	}
+
+	wg.Wait()
 
 }
 
 func timeTrack(start time.Time, name string) {
 	elapsed := time.Since(start)
-	fmt.Printf("%s took %s", name, elapsed)
+	fmt.Printf("---------- TIME OF EXEC(%v): %s \n", name, elapsed)
 }
 
 func chunkSlice(slice []string, nChunks int) [][]string {
@@ -103,3 +117,15 @@ func chunkSlice(slice []string, nChunks int) [][]string {
 
 	return email
 }*/
+
+func processChunk(chunk []string, i int) {
+	time.Sleep(5 * time.Second)
+	f, _ := os.OpenFile("temp"+strconv.FormatInt(int64(i+1), 10)+".txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644) //Nombre archivo ndjson
+	defer f.Close()
+
+	for _, path := range chunk {
+		f.WriteString(path + "\n")
+	}
+
+	wg.Done()
+}
