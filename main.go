@@ -1,137 +1,61 @@
 package main
 
 import (
-	"bufio"
-	"encoding/json"
+	"email-indexer/globals"
+	"email-indexer/helpers"
 	"fmt"
-	"io"
-	"net/http"
-	"net/mail"
+	"log"
 	"os"
-	"strings"
+	"path/filepath"
+	"sync"
+	"time"
 )
 
-type Email struct {
-	Date    string `json:"date"`
-	From    string `json:"from"`
-	To      string `json:"to"`
-	Subject string `json:"subject"`
-	Cc      string `json:"cc"`
-	Body    string `json:"body"`
-}
+var wg = sync.WaitGroup{}
 
-type Bulk struct {
-	Index   string  `json:"index"`
-	Records []Email `json:"records"`
-}
+const nChunks int = 10
 
 func main() {
 
-	path := "/Users/diegoherrera/Downloads/enron_mail_20110402/" //DB PATH "./db-mail/" //
-	index := "enron"
+	if len(os.Args) < 2 {
+		log.Fatal("Ingrese un path válido!")
+	}
 
-	//Generar DB con direcciones de emails
-	f, _ := os.OpenFile("temp.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644) //Nombre archivo ndjson
-	defer f.Close()
-	getEmailDir(path, f)
+	path := os.Args[1]
 
-	//Leer DB de emails, mapear emails a JSON, crear documento para BulkV2
-	jsonFile, _ := os.OpenFile("temp.json", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644) //Nombre archivo ndjson
-	defer jsonFile.Close()
+	start := time.Now()
+	defer helpers.TimeTrack(start, "BulkDB")
 
-	jsonFile.WriteString(`{"index": "` + index + `" , "records": [ `)
+	//GENERAR SLICE CON TODOS LOS PATHS DE EMAILS EN LA DB
+	fileList := []string{}
 
-	file, _ := os.Open("temp.txt")
-	defer file.Close()
-	defer os.Remove("temp.txt")
-
-	reader := bufio.NewReader(file)
-	i := true
-	for {
-		line, _, err := reader.ReadLine()
-		if err == io.EOF {
-			jsonFile.WriteString("]}")
-			break
+	error := filepath.WalkDir(path, func(path string, d os.DirEntry, err error) error {
+		if !d.IsDir() && d.Name() != ".DS_Store" && d.Name() != "DELETIONS.txt" {
+			fileList = append(fileList, path)
 		}
+		return nil
+	})
 
-		email := genEmail(string(line))
-		emailJSON, _ := json.Marshal(email)
-
-		if i {
-			jsonFile.WriteString(string(emailJSON) + "\n")
-			i = false
-		} else {
-			jsonFile.WriteString("," + string(emailJSON) + "\n")
-		}
+	if error != nil {
+		fmt.Println(error)
 	}
 
-	//Realizar Bulk
-	bulkFile, _ := os.Open("temp.json")
-	defer f.Close()
-	defer os.Remove("temp.json")
+	//GENERAR SLICE DE CHUNKS PARA PROCESAR CON GORUTINA
+	chunks := helpers.ChunkSlice(fileList, nChunks)
+	fmt.Printf("---------- NO. OF CHUNKS: %v\n---------- NO. OF FILES:  %v\n", len(chunks), len(fileList))
 
-	req, err := http.NewRequest("POST", "http://localhost:4080/api/_bulkv2", bulkFile)
+	//SE GENERA DOCUMENTO JSON VALIDO Y SE CARGAR BULK POR CHUNKS USANDO CONCURRENCIA
+	wg.Add(nChunks)
+
+	for idx, chunk := range chunks {
+		go helpers.UploadChunk(chunk, idx, &wg)
+	}
+
+	wg.Wait() //Se bloquea la ejecución hasta que se terminen todos los threads
+
+	//SE BORRA EL DIRECTORIO TEMPORAL
+	err := os.RemoveAll(globals.TEMPDIR)
 	if err != nil {
-		fmt.Println(err)
+		log.Fatal(err)
 	}
-
-	req.SetBasicAuth("admin", "Complexpass#123")
-	req.Header.Set("Content-type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		fmt.Println(err)
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	fmt.Println(string(body))
-}
-
-func getEmailDir(path string, f *os.File) {
-
-	//ABRIR DIRECTORIO
-	openDir, _ := os.Open(path)
-
-	//LEER DIRECTORIO PARA OBTENER TODOS LOS ARCHIVOS HIJOS
-	dirFiles, _ := openDir.ReadDir(0)
-
-	//SI ES ARCHIVO LEER Y AGREGAR AL ARCHIVO SI NO USAR RECURSIVIDAD
-	for _, file := range dirFiles {
-		if file.IsDir() || file.Name() == ".DS_Store" {
-			getEmailDir(path+file.Name()+"/", f)
-		} else {
-			f.WriteString(path + file.Name() + "\n")
-		}
-	}
-
-}
-
-func genEmail(path string) Email {
-
-	content, _ := os.ReadFile(path) //Ruta email
-
-	r := strings.NewReader(string(content))
-	m, err := mail.ReadMessage(r)
-	if err != nil {
-		fmt.Printf("PATH: %v, ERROR: %v \n", path, err)
-
-		var email Email
-
-		return email
-	}
-
-	header := m.Header
-	body, _ := io.ReadAll(m.Body)
-
-	email := Email{
-		Date:    header.Get("Date"),
-		From:    header.Get("From"),
-		To:      header.Get("To"),
-		Subject: header.Get("Subject"),
-		Cc:      header.Get("Cc"),
-		Body:    string(body),
-	}
-
-	return email
 }

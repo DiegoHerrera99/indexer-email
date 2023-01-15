@@ -1,2 +1,6 @@
 /.DS_Store
+/data/*
 /data
+/temp/*
+/temp
+indexer
