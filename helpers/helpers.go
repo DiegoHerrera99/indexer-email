@@ -2,13 +2,17 @@ package helpers
 
 import (
 	"email-indexer/globals"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/mail"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -45,6 +49,44 @@ func ChunkSlice(slice []string, nChunks int) [][]string {
 	}
 
 	return chunks
+}
+
+func UploadChunk(chunk []string, i int, wg *sync.WaitGroup) {
+
+	if _, err := os.Stat(globals.TEMPDIR); errors.Is(err, os.ErrNotExist) {
+		err := os.Mkdir(globals.TEMPDIR, os.ModePerm)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	tempFile := globals.TEMPDIR + "/bulk" + strconv.FormatInt(int64(i+1), 10) + ".json"
+
+	f, _ := os.OpenFile(tempFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+
+	for idx, path := range chunk {
+		email, err := GenEmail(path)
+
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		emailJSON, _ := json.Marshal(email)
+		if idx == 0 {
+			f.WriteString(`{"index": "` + globals.ZINC_INDEX + `", "records": [` + string(emailJSON) + "," + "\n")
+		} else if idx == len(chunk)-1 {
+			f.WriteString(string(emailJSON) + "]}" + "\n")
+		} else {
+			f.WriteString(string(emailJSON) + "," + "\n")
+		}
+	}
+
+	f.Close()
+
+	//Realizar Bulk
+	BulkFile(tempFile)
+
+	wg.Done()
 }
 
 func GenEmail(path string) (Email, error) {

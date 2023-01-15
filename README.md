@@ -1,5 +1,5 @@
 # Email-Indexer
 
-Indexación de base de datos de correo al motor de busqueda Zincsearch
+Indexación de base de datos de correos al motor de busqueda Zincsearch
 utilizando Go.
  

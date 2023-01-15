@@ -3,21 +3,25 @@ package main
 import (
 	"email-indexer/globals"
 	"email-indexer/helpers"
-	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
-	"strconv"
 	"sync"
 	"time"
 )
 
-const path string = "/Users/diegoherrera/Downloads/enron_mail_20110402/"
-const nChunks int = 10
-
 var wg = sync.WaitGroup{}
 
+const nChunks int = 10
+
 func main() {
+
+	if len(os.Args) < 2 {
+		log.Fatal("Ingrese un path válido!")
+	}
+
+	path := os.Args[1]
 
 	start := time.Now()
 	defer helpers.TimeTrack(start, "BulkDB")
@@ -40,42 +44,18 @@ func main() {
 	chunks := helpers.ChunkSlice(fileList, nChunks)
 	fmt.Printf("---------- NO. OF CHUNKS: %v\n---------- NO. OF FILES:  %v\n", len(chunks), len(fileList))
 
-	//SE GENERA DOCUMENTO JSON VALIDO PARA CARGAR BULK POR CHUNKS USANDO CONCURRENCIA
+	//SE GENERA DOCUMENTO JSON VALIDO Y SE CARGAR BULK POR CHUNKS USANDO CONCURRENCIA
 	wg.Add(nChunks)
+
 	for idx, chunk := range chunks {
-		go uploadChunk(chunk, idx)
+		go helpers.UploadChunk(chunk, idx, &wg)
 	}
 
-	wg.Wait()
-}
+	wg.Wait() //Se bloquea la ejecución hasta que se terminen todos los threads
 
-func uploadChunk(chunk []string, i int) {
-
-	tempFile := "./temp/bulk" + strconv.FormatInt(int64(i+1), 10) + ".json"
-
-	f, _ := os.OpenFile(tempFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-
-	for idx, path := range chunk {
-		email, err := helpers.GenEmail(path)
-
-		if err != nil {
-			fmt.Println(err)
-		}
-
-		emailJSON, _ := json.Marshal(email)
-		if idx == 0 {
-			f.WriteString(`{"index": "` + globals.ZINC_INDEX + `", "records": [` + string(emailJSON) + "," + "\n")
-		} else if idx == len(chunk)-1 {
-			f.WriteString(string(emailJSON) + "]}" + "\n")
-		} else {
-			f.WriteString(string(emailJSON) + "," + "\n")
-		}
+	//SE BORRA EL DIRECTORIO TEMPORAL
+	err := os.RemoveAll(globals.TEMPDIR)
+	if err != nil {
+		log.Fatal(err)
 	}
-
-	f.Close()
-
-	//Realizar Bulk
-	helpers.BulkFile(tempFile)
-
-	wg.Done()
 }
