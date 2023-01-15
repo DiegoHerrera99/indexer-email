@@ -1,17 +1,13 @@
 package main
 
 import (
-	"bufio"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/mail"
 	"os"
-	"strings"
+	"path/filepath"
+	"time"
 )
 
-type Email struct {
+/*type Email struct {
 	Date    string `json:"date"`
 	From    string `json:"from"`
 	To      string `json:"to"`
@@ -23,91 +19,63 @@ type Email struct {
 type Bulk struct {
 	Index   string  `json:"index"`
 	Records []Email `json:"records"`
-}
+}*/
+
+const path string = "/Users/diegoherrera/Downloads/enron_mail_20110402/"
+const nChunks int = 10
+
+// const index string = "enron"
 
 func main() {
 
-	path := "/Users/diegoherrera/Downloads/enron_mail_20110402/" //DB PATH "./db-mail/" //
-	index := "enron"
+	start := time.Now()
+	defer timeTrack(start, "genPathChunks")
 
-	//Generar DB con direcciones de emails
-	f, _ := os.OpenFile("temp.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644) //Nombre archivo ndjson
-	defer f.Close()
-	getEmailDir(path, f)
+	fileList := []string{}
 
-	//Leer DB de emails, mapear emails a JSON, crear documento para BulkV2
-	jsonFile, _ := os.OpenFile("temp.json", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644) //Nombre archivo ndjson
-	defer jsonFile.Close()
-
-	jsonFile.WriteString(`{"index": "` + index + `" , "records": [ `)
-
-	file, _ := os.Open("temp.txt")
-	defer file.Close()
-	defer os.Remove("temp.txt")
-
-	reader := bufio.NewReader(file)
-	i := true
-	for {
-		line, _, err := reader.ReadLine()
-		if err == io.EOF {
-			jsonFile.WriteString("]}")
-			break
+	error := filepath.WalkDir(path, func(path string, d os.DirEntry, err error) error {
+		if !d.IsDir() && d.Name() != ".DS_Store" && d.Name() != "DELETIONS.txt" {
+			fileList = append(fileList, path)
 		}
+		return nil
+	})
 
-		email := genEmail(string(line))
-		emailJSON, _ := json.Marshal(email)
-
-		if i {
-			jsonFile.WriteString(string(emailJSON) + "\n")
-			i = false
-		} else {
-			jsonFile.WriteString("," + string(emailJSON) + "\n")
-		}
+	if error != nil {
+		fmt.Println(error)
 	}
 
-	//Realizar Bulk
-	bulkFile, _ := os.Open("temp.json")
-	defer f.Close()
-	defer os.Remove("temp.json")
-
-	req, err := http.NewRequest("POST", "http://localhost:4080/api/_bulkv2", bulkFile)
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	req.SetBasicAuth("admin", "Complexpass#123")
-	req.Header.Set("Content-type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		fmt.Println(err)
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	fmt.Println(string(body))
-}
-
-func getEmailDir(path string, f *os.File) {
-
-	//ABRIR DIRECTORIO
-	openDir, _ := os.Open(path)
-
-	//LEER DIRECTORIO PARA OBTENER TODOS LOS ARCHIVOS HIJOS
-	dirFiles, _ := openDir.ReadDir(0)
-
-	//SI ES ARCHIVO LEER Y AGREGAR AL ARCHIVO SI NO USAR RECURSIVIDAD
-	for _, file := range dirFiles {
-		if file.IsDir() || file.Name() == ".DS_Store" {
-			getEmailDir(path+file.Name()+"/", f)
-		} else {
-			f.WriteString(path + file.Name() + "\n")
-		}
-	}
+	chunks := chunkSlice(fileList, nChunks)
+	fmt.Printf("NO. OF CHUNKS: %v    ----------\nNO. OF FILES: %v ----------\n", len(chunks), len(fileList))
 
 }
 
-func genEmail(path string) Email {
+func timeTrack(start time.Time, name string) {
+	elapsed := time.Since(start)
+	fmt.Printf("%s took %s", name, elapsed)
+}
+
+func chunkSlice(slice []string, nChunks int) [][]string {
+	var chunks [][]string
+
+	chunkSize := len(slice) / (nChunks)
+	remainder := len(slice) % nChunks
+
+	end := 0
+	for i := 0; i < nChunks; i++ {
+		if i == (nChunks-1) && remainder != 0 {
+			chunkSize = (len(slice) / (nChunks)) + remainder
+		}
+
+		end += chunkSize
+		start := end - chunkSize
+
+		chunks = append(chunks, slice[start:end])
+	}
+
+	return chunks
+}
+
+/*func genEmail(path string) Email {
 
 	content, _ := os.ReadFile(path) //Ruta email
 
@@ -134,4 +102,4 @@ func genEmail(path string) Email {
 	}
 
 	return email
-}
+}*/
