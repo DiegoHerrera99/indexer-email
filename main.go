@@ -1,6 +1,9 @@
 package main
 
 import (
+	"email-indexer/globals"
+	"email-indexer/helpers"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,31 +12,15 @@ import (
 	"time"
 )
 
-/*type Email struct {
-	Date    string `json:"date"`
-	From    string `json:"from"`
-	To      string `json:"to"`
-	Subject string `json:"subject"`
-	Cc      string `json:"cc"`
-	Body    string `json:"body"`
-}
-
-type Bulk struct {
-	Index   string  `json:"index"`
-	Records []Email `json:"records"`
-}*/
-
 const path string = "/Users/diegoherrera/Downloads/enron_mail_20110402/"
 const nChunks int = 10
-
-// const index string = "enron"
 
 var wg = sync.WaitGroup{}
 
 func main() {
 
 	start := time.Now()
-	defer timeTrack(start, "gen&proccessChunks GO")
+	defer helpers.TimeTrack(start, "BulkDB")
 
 	//GENERAR SLICE CON TODOS LOS PATHS DE EMAILS EN LA DB
 	fileList := []string{}
@@ -50,82 +37,45 @@ func main() {
 	}
 
 	//GENERAR SLICE DE CHUNKS PARA PROCESAR CON GORUTINA
-	chunks := chunkSlice(fileList, nChunks)
+	chunks := helpers.ChunkSlice(fileList, nChunks)
 	fmt.Printf("---------- NO. OF CHUNKS: %v\n---------- NO. OF FILES:  %v\n", len(chunks), len(fileList))
 
-	//TODO: Procesar con Go Rutina!!!!
+	//SE GENERA DOCUMENTO JSON VALIDO PARA CARGAR BULK POR CHUNKS USANDO CONCURRENCIA
 	wg.Add(nChunks)
 	for idx, chunk := range chunks {
-		go processChunk(chunk, idx)
+		go uploadChunk(chunk, idx)
 	}
 
 	wg.Wait()
-
 }
 
-func timeTrack(start time.Time, name string) {
-	elapsed := time.Since(start)
-	fmt.Printf("---------- TIME OF EXEC(%v): %s \n", name, elapsed)
-}
+func uploadChunk(chunk []string, i int) {
 
-func chunkSlice(slice []string, nChunks int) [][]string {
-	var chunks [][]string
+	tempFile := "./temp/bulk" + strconv.FormatInt(int64(i+1), 10) + ".json"
 
-	chunkSize := len(slice) / (nChunks)
-	remainder := len(slice) % nChunks
+	f, _ := os.OpenFile(tempFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 
-	end := 0
-	for i := 0; i < nChunks; i++ {
-		if i == (nChunks-1) && remainder != 0 {
-			chunkSize = (len(slice) / (nChunks)) + remainder
+	for idx, path := range chunk {
+		email, err := helpers.GenEmail(path)
+
+		if err != nil {
+			fmt.Println(err)
 		}
 
-		end += chunkSize
-		start := end - chunkSize
-
-		chunks = append(chunks, slice[start:end])
+		emailJSON, _ := json.Marshal(email)
+		if idx == 0 {
+			f.WriteString(`{"index": "` + globals.ZINC_INDEX + `", "records": [` + string(emailJSON) + "," + "\n")
+		} else if idx == len(chunk)-1 {
+			f.WriteString(string(emailJSON) + "]}" + "\n")
+		} else {
+			f.WriteString(string(emailJSON) + "," + "\n")
+		}
 	}
 
-	return chunks
-}
+	f.Close()
 
-/*func genEmail(path string) Email {
-
-	content, _ := os.ReadFile(path) //Ruta email
-
-	r := strings.NewReader(string(content))
-	m, err := mail.ReadMessage(r)
-	if err != nil {
-		fmt.Printf("PATH: %v, ERROR: %v \n", path, err)
-
-		var email Email
-
-		return email
-	}
-
-	header := m.Header
-	body, _ := io.ReadAll(m.Body)
-
-	email := Email{
-		Date:    header.Get("Date"),
-		From:    header.Get("From"),
-		To:      header.Get("To"),
-		Subject: header.Get("Subject"),
-		Cc:      header.Get("Cc"),
-		Body:    string(body),
-	}
-
-	return email
-}*/
-
-func processChunk(chunk []string, i int) {
-	time.Sleep(5 * time.Second)
-	f, _ := os.OpenFile("temp"+strconv.FormatInt(int64(i+1), 10)+".txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644) //Nombre archivo ndjson
-	defer f.Close()
-
-	for _, path := range chunk {
-		f.WriteString(path + "\n")
-	}
+	//Realizar Bulk
+	helpers.BulkFile(tempFile)
 
 	wg.Done()
 }
