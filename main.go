@@ -26,6 +26,13 @@ func main() {
 	start := time.Now()
 	defer helpers.TimeTrack(start, "BulkDB")
 
+	//SE ASEGURA QUE EL TEMPDIR SEA ÚNICO
+	if _, err := os.Stat(globals.TEMPDIR); err == nil {
+		if err := os.RemoveAll(globals.TEMPDIR); err != nil {
+			log.Fatal(err)
+		}
+	}
+
 	//GENERAR SLICE CON TODOS LOS PATHS DE EMAILS EN LA DB
 	fileList := []string{}
 
@@ -54,8 +61,7 @@ func main() {
 	wg.Wait() //Se bloquea la ejecución hasta que se terminen todos los threads
 
 	//SE BORRA EL DIRECTORIO TEMPORAL
-	err := os.RemoveAll(globals.TEMPDIR)
-	if err != nil {
+	if err := os.RemoveAll(globals.TEMPDIR); err != nil {
 		log.Fatal(err)
 	}
 }
