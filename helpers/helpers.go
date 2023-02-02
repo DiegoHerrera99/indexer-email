@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/mail"
 	"os"
@@ -53,12 +52,12 @@ func ChunkSlice(slice []string, nChunks int) [][]string {
 
 func UploadChunk(chunk []string, i int, wg *sync.WaitGroup) {
 
-	if _, err := os.Stat(globals.TEMPDIR); errors.Is(err, os.ErrNotExist) {
+	/*if _, err := os.Stat(globals.TEMPDIR); errors.Is(err, os.ErrNotExist) {
 		err := os.Mkdir(globals.TEMPDIR, os.ModePerm)
 		if err != nil {
 			log.Fatal(err)
 		}
-	}
+	}*/
 
 	tempFile := globals.TEMPDIR + "/bulk" + strconv.FormatInt(int64(i+1), 10) + ".json"
 
@@ -96,8 +95,11 @@ func GenEmail(path string) (Email, error) {
 	r := strings.NewReader(string(content))
 	m, err := mail.ReadMessage(r)
 	if err != nil {
+		formattedDate := time.Now().Format(time.RFC3339)
 		msg := fmt.Sprintf("PATH: %v, ERROR: %v \n", path, err)
-		var email Email
+		email := Email{
+			Date: formattedDate,
+		}
 
 		return email, errors.New(msg)
 	}
@@ -105,8 +107,16 @@ func GenEmail(path string) (Email, error) {
 	header := m.Header
 	body, _ := io.ReadAll(m.Body)
 
+	date := header.Get("Date")
+	parseDate, err := time.Parse("Mon, 2 Jan 2006 15:04:05 -0700 (MST)", date)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	formattedDate := parseDate.Format(time.RFC3339)
+
 	email := Email{
-		Date:    header.Get("Date"),
+		Date:    formattedDate,
 		From:    header.Get("From"),
 		To:      header.Get("To"),
 		Subject: header.Get("Subject"),

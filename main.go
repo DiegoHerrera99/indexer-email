@@ -33,6 +33,11 @@ func main() {
 		}
 	}
 
+	err := os.Mkdir(globals.TEMPDIR, os.ModePerm)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	//GENERAR SLICE CON TODOS LOS PATHS DE EMAILS EN LA DB
 	fileList := []string{}
 
