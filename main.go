@@ -24,7 +24,7 @@ func main() {
 	path := os.Args[1]
 
 	start := time.Now()
-	defer helpers.TimeTrack(start, "BulkDB")
+	defer helpers.TimeTrack(start, "indexEmailDBProcess")
 
 	//SE ASEGURA QUE EL TEMPDIR SEA ÚNICO
 	if _, err := os.Stat(globals.TEMPDIR); err == nil {
@@ -36,6 +36,13 @@ func main() {
 	err := os.Mkdir(globals.TEMPDIR, os.ModePerm)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	//SE CREA EL INDEX EN ZINCSEARCG
+	err = helpers.CreateIndex(globals.ZINC_CRTIDX_ENDPOINT, "POST", globals.ZINC_IDXMAP)
+	if err != nil {
+		fmt.Println("Zinc server is down!")
+		return
 	}
 
 	//GENERAR SLICE CON TODOS LOS PATHS DE EMAILS EN LA DB

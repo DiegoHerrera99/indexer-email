@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"net/mail"
 	"os"
@@ -52,13 +53,6 @@ func ChunkSlice(slice []string, nChunks int) [][]string {
 
 func UploadChunk(chunk []string, i int, wg *sync.WaitGroup) {
 
-	/*if _, err := os.Stat(globals.TEMPDIR); errors.Is(err, os.ErrNotExist) {
-		err := os.Mkdir(globals.TEMPDIR, os.ModePerm)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}*/
-
 	tempFile := globals.TEMPDIR + "/bulk" + strconv.FormatInt(int64(i+1), 10) + ".json"
 
 	f, _ := os.OpenFile(tempFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -96,7 +90,7 @@ func GenEmail(path string) (Email, error) {
 	m, err := mail.ReadMessage(r)
 	if err != nil {
 		formattedDate := time.Now().Format(time.RFC3339)
-		msg := fmt.Sprintf("PATH: %v, ERROR: %v \n", path, err)
+		msg := fmt.Sprintf("PATH: %v, ERROR: %v", path, err)
 		email := Email{
 			Date: formattedDate,
 		}
@@ -147,5 +141,35 @@ func BulkFile(path string) {
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	fmt.Println(string(body))
+	fmt.Printf("UPLOADING CHUNK: %v \n", string(body))
+}
+
+func CreateIndex(url string, method string, payload string) error {
+	payloadReader := strings.NewReader(payload)
+
+	req, err := http.NewRequest(method, url, payloadReader)
+	if err != nil {
+		return err
+	}
+
+	req.SetBasicAuth(globals.ZINC_USER, globals.ZINC_PWD)
+	//req.Header.Add("Authorization", "Basic YWRtaW46Q29tcGxleHBhc3MjMTIz")
+
+	client := &http.Client{}
+
+	res, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+
+	defer res.Body.Close()
+
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("CREATING INDEX: %v \n", string(body))
+
+	return nil
 }
